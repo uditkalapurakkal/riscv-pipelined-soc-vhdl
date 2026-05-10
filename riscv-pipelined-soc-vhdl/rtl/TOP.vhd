@@ -102,11 +102,13 @@ signal pc_plus_4_d :  std_logic_vector(31 downto 0);
 --id_ex control
 signal res_src_d, res_src_e     : std_logic_vector(1 downto 0);
 signal mem_write_d, mem_write_e : std_logic;
-signal alu_cont_d, alu_cont_e   : std_logic_vector(2 downto 0);
+signal alu_cont_d, alu_cont_e   : std_logic_vector(3 downto 0);
 signal alu_src_d, alu_src_e     : std_logic ; 
 signal reg_write_d, reg_write_e : std_logic;
 signal branch_d, branch_e       : std_logic; 
 signal jump_d, jump_e           : std_logic;
+signal funct3_d, funct3_e       : std_logic_vector(2 downto 0);
+signal branch_taken_e           : std_logic;
 --id_ex data
 signal rd1_d, rd2_d, rd1_e, rd2_e             : std_logic_vector(31 downto 0);
 signal ra1_d, ra2_d, rd_d, ra1_e, ra2_e, rd_e : std_logic_vector(4 downto 0);
@@ -172,7 +174,7 @@ component alu is
 port(
      srca     : in std_logic_vector(31 downto 0);
      srcb     : in std_logic_vector(31 downto 0);
-     alu_cont : in std_logic_vector(2 downto 0); 
+     alu_cont : in std_logic_vector(3 downto 0); 
      zero     : out std_logic ; 
      alu_res  : out std_logic_vector(31 downto 0)); 
      
@@ -214,7 +216,7 @@ port(
      funct7_5  : in std_logic ;
      res_src   : out std_logic_vector(1 downto 0);
      mem_write : out std_logic;
-     alu_cont  : out std_logic_vector(2 downto 0);
+     alu_cont  : out std_logic_vector(3 downto 0);
      alu_src   : out std_logic ; 
      imm_src   : out std_logic_vector(2 downto 0);
      reg_write : out std_logic;
@@ -272,17 +274,18 @@ port(
 --CONTROL UNIT
      res_src_d   : in std_logic_vector(1 downto 0);
      mem_write_d : in std_logic;
-     alu_cont_d  : in std_logic_vector(2 downto 0);
+     alu_cont_d  : in std_logic_vector(3 downto 0);
      alu_src_d   : in std_logic ; 
      reg_write_d : in std_logic;
      branch_d    : in std_logic; 
      jump_d      : in std_logic;
      valid_d     : in  std_logic;
-
+     funct3_d    : in  std_logic_vector(2 downto 0);
+     funct3_e    : out std_logic_vector(2 downto 0);
      valid_e     : out std_logic;
      res_src_e   : out std_logic_vector(1 downto 0);
      mem_write_e : out std_logic;
-     alu_cont_e  : out std_logic_vector(2 downto 0);
+     alu_cont_e  : out std_logic_vector(3 downto 0);
      alu_src_e   : out std_logic ; 
      reg_write_e : out std_logic;
      branch_e    : out std_logic; 
@@ -389,6 +392,7 @@ end component;
 
 begin
 
+  funct3_d <= instr_d(14 downto 12);
   valid_f   <= '1';
   pc_plus_4 <= std_logic_vector(unsigned(pc)+4);
   pc_target_e <= std_logic_vector(unsigned(pc_e) + unsigned(sign_imm_e));
@@ -398,7 +402,7 @@ begin
   mem_write_real <= valid_m and mem_write_m;
 --  pc_src_e <= mispredict_e or (valid_e and jump_e);
   pc_src_e <= (branch_prediction_enable and mispredict_e) or
-            ((not branch_prediction_enable) and valid_e and branch_e and zero_e) or
+            ((not branch_prediction_enable) and valid_e and branch_e and branch_taken_e) or
             (valid_e and jump_e);
 --branch
 taken_mismatch_e <= predicted_taken_e xor actual_taken_e;
@@ -411,12 +415,11 @@ else '0';
 
 correct_pc_e <= pc_target_e when actual_taken_e = '1' else pc_plus_4_e;
 
---mispredict_e <= valid_e and branch_e and (taken_mismatch_e or target_mismatch_e);
 mispredict_e <= branch_prediction_enable and valid_e and branch_e and
                 (taken_mismatch_e or target_mismatch_e);
 
 process(branch_prediction_enable, mispredict_e, correct_pc_e,
-        valid_e, jump_e, branch_e, zero_e,
+        valid_e, jump_e, branch_e, branch_taken_e,
         pc_target_e, predict_taken_f, predicted_target_f, pc_plus_4)
 begin
   if branch_prediction_enable = '1' then
@@ -436,7 +439,7 @@ begin
 
   else
     -- Predictor OFF: old baseline behavior
-    if valid_e = '1' and (((branch_e = '1') and (zero_e = '1')) or jump_e = '1') then
+    if valid_e = '1' and (((branch_e = '1') and (branch_taken_e = '1')) or jump_e = '1') then
       pc_next <= pc_target_e;
 
     else
@@ -460,8 +463,58 @@ end process;
 
     rst_local <= rst_sync2;
 
+--branch compare
+branch_compare_proc : process(funct3_e, srca_e, write_data_e)
+begin
+    case funct3_e is
+        when "000" => -- BEQ
+            if srca_e = write_data_e then
+                branch_taken_e <= '1';
+            else
+                branch_taken_e <= '0';
+            end if;
+
+        when "001" => -- BNE
+            if srca_e /= write_data_e then
+                branch_taken_e <= '1';
+            else
+                branch_taken_e <= '0';
+            end if;
+
+        when "100" => -- BLT
+            if signed(srca_e) < signed(write_data_e) then
+                branch_taken_e <= '1';
+            else
+                branch_taken_e <= '0';
+            end if;
+
+        when "101" => -- BGE
+            if signed(srca_e) >= signed(write_data_e) then
+                branch_taken_e <= '1';
+            else
+                branch_taken_e <= '0';
+            end if;
+
+        when "110" => -- BLTU
+            if unsigned(srca_e) < unsigned(write_data_e) then
+                branch_taken_e <= '1';
+            else
+                branch_taken_e <= '0';
+            end if;
+
+        when "111" => -- BGEU
+            if unsigned(srca_e) >= unsigned(write_data_e) then
+                branch_taken_e <= '1';
+            else
+                branch_taken_e <= '0';
+            end if;
+
+        when others =>
+            branch_taken_e <= '0';
+    end case;
+end process;
 --BRANCH PREDICTOR
-actual_taken_e     <= branch_e and zero_e;
+actual_taken_e <= valid_e and branch_e and branch_taken_e;
 predictor_update_e <= valid_e and branch_e;
    
 --debug 
@@ -641,6 +694,8 @@ predictor_update_e <= valid_e and branch_e;
           branch_d    => branch_d,
           jump_d      => jump_d,
           valid_d     => valid_d,
+          funct3_e    => funct3_e, 
+          funct3_d    => funct3_d,
 -- CONTROL outputs
           res_src_e   => res_src_e,
           mem_write_e => mem_write_e,

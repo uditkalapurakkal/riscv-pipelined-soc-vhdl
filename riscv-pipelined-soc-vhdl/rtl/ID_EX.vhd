@@ -9,17 +9,18 @@ port(
 --CONTROL UNIT
      res_src_d   : in std_logic_vector(1 downto 0);
      mem_write_d : in std_logic;
-     alu_cont_d  : in std_logic_vector(2 downto 0);
+     alu_cont_d  : in std_logic_vector(3 downto 0);
      alu_src_d   : in std_logic ; 
      reg_write_d : in std_logic;
      branch_d    : in std_logic; 
      jump_d      : in std_logic;
      valid_d     : in  std_logic;
-
+     funct3_d    : in  std_logic_vector(2 downto 0);
+     funct3_e    : out std_logic_vector(2 downto 0);
      valid_e     : out std_logic;
      res_src_e   : out std_logic_vector(1 downto 0);
      mem_write_e : out std_logic;
-     alu_cont_e  : out std_logic_vector(2 downto 0);
+     alu_cont_e  : out std_logic_vector(3 downto 0);
      alu_src_e   : out std_logic ; 
      reg_write_e : out std_logic;
      branch_e    : out std_logic; 
@@ -51,6 +52,8 @@ end entity;
 
 architecture behaviour of id_ex is
 
+signal funct3_reg :  std_logic_vector(2 downto 0);
+
 begin
 
 reg:process(clk)
@@ -62,12 +65,13 @@ begin
 --CONTROL
     res_src_e   <= "00";
     mem_write_e <= '0';
-    alu_cont_e  <= "000";
+    alu_cont_e  <= "0000";
     alu_src_e   <= '0'; 
     reg_write_e <= '0';
     branch_e    <= '0'; 
     jump_e      <= '0';
     valid_e     <= '0';
+    funct3_reg  <= (others => '0');
 --DATA
     rd1_e       <= (others => '0');
     rd2_e       <= (others => '0');
@@ -85,12 +89,13 @@ begin
 --CONTROL
     res_src_e   <= "00";
     mem_write_e <= '0';
-    alu_cont_e  <= "000";
+    alu_cont_e  <= "0000";
     alu_src_e   <= '0'; 
     reg_write_e <= '0';
     branch_e    <= '0'; 
     jump_e      <= '0';
     valid_e     <= '0';
+    funct3_reg  <= (others => '0');
 --DATA
     rd1_e       <= (others => '0');
     rd2_e       <= (others => '0');
@@ -121,11 +126,12 @@ begin
     sign_imm_e  <= sign_imm_d;
     pc_plus_4_e <= pc_plus_4_d;
     pc_e        <= pc_d;
-
+    funct3_reg  <= funct3_d;
    predicted_taken_e  <= predicted_taken_d;
    predicted_target_e <= predicted_target_d;
   end if;
-end if;
+end if; 
 end process;
+funct3_e <= funct3_reg;  
 end behaviour;
 
