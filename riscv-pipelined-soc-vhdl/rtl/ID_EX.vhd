@@ -16,6 +16,8 @@ port(
      jump_d      : in std_logic;
      valid_d     : in  std_logic;
      funct3_d    : in  std_logic_vector(2 downto 0);
+     alu_a_src_d : in  std_logic_vector(1 downto 0);
+     alu_a_src_e : out std_logic_vector(1 downto 0);
      funct3_e    : out std_logic_vector(2 downto 0);
      valid_e     : out std_logic;
      res_src_e   : out std_logic_vector(1 downto 0);
@@ -30,6 +32,9 @@ port(
      predicted_target_d : in  std_logic_vector(31 downto 0);
      predicted_taken_e  : out std_logic;
      predicted_target_e : out std_logic_vector(31 downto 0);
+--jalr
+     jalr_d : in  std_logic;
+     jalr_e : out std_logic;
 --DATA
      rd1_d       : in std_logic_vector(31 downto 0);
      rd2_d       : in std_logic_vector(31 downto 0);
@@ -72,6 +77,8 @@ begin
     jump_e      <= '0';
     valid_e     <= '0';
     funct3_reg  <= (others => '0');
+    alu_a_src_e <= "00";
+    jalr_e      <= '0';
 --DATA
     rd1_e       <= (others => '0');
     rd2_e       <= (others => '0');
@@ -96,6 +103,8 @@ begin
     jump_e      <= '0';
     valid_e     <= '0';
     funct3_reg  <= (others => '0');
+    alu_a_src_e <= "00";
+    jalr_e      <= '0';
 --DATA
     rd1_e       <= (others => '0');
     rd2_e       <= (others => '0');
@@ -114,6 +123,8 @@ begin
     mem_write_e <= mem_write_d;
     alu_cont_e  <= alu_cont_d;
     alu_src_e   <= alu_src_d; 
+    alu_a_src_e <= alu_a_src_d;
+    jalr_e      <= jalr_d;
     reg_write_e <= reg_write_d;
     branch_e    <= branch_d;
     jump_e      <= jump_d;

@@ -10,8 +10,9 @@ port(
      res_src   : out std_logic_vector(1 downto 0);
      alu_src   : out std_logic ; 
      branch    : out std_logic; 
-     jump    : out std_logic;
+     jump      : out std_logic;
      mem_write : out std_logic;
+     alu_a_src : out std_logic_vector(1 downto 0);
      alu_op    : out std_logic_vector(1 downto 0));
      
 end entity;
@@ -21,6 +22,7 @@ architecture behaviour of MAIN_DECODER is
 begin
   comb: process(op)
   begin
+    alu_a_src <= "00"; -- default: ALU A = rs1
     case op is
       when "0110011" =>      --rtype
         reg_write  <= '1';
@@ -76,10 +78,21 @@ begin
         branch     <= '0';
         alu_op     <= "00";  -- add operation
         jump       <= '1';
+      when "1100111" =>      -- jalr
+        reg_write  <= '1';
+        imm_src    <= "000";
+        alu_src    <= '1';   -- use immediate not register
+        alu_a_src  <= "00";
+        mem_write  <= '0';
+        res_src    <= "10";
+        branch     <= '0';
+        alu_op     <= "00";  -- add operation
+        jump       <= '1';
       when "0110111" =>      -- lui
         reg_write  <= '1';
         imm_src    <= "100";
         alu_src    <= '1';   -- use immediate not register
+        alu_a_src  <= "10";
         mem_write  <= '0';
         res_src    <= "00";
         branch     <= '0';
@@ -89,6 +102,7 @@ begin
         reg_write  <= '1';
         imm_src    <= "100";
         alu_src    <= '1';   -- use immediate not register
+        alu_a_src  <= "01";
         mem_write  <= '0';
         res_src    <= "00";
         branch     <= '0';

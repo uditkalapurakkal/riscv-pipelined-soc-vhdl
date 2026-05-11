@@ -134,6 +134,12 @@ signal stall_f, stall_d       : std_logic;
 signal flush_d, flush_e       : std_logic;
 signal forward_ae             : std_logic_vector(1 downto 0);
 signal forward_be             : std_logic_vector(1 downto 0);
+--
+signal alu_a_src_d, alu_a_src_e : std_logic_vector(1 downto 0);
+signal alu_input_a_e            : std_logic_vector(31 downto 0);
+signal jalr_target_e            : std_logic_vector(31 downto 0);
+signal jalr_d                   : std_logic;
+signal jalr_e                   : std_logic;
 
 component program_counter is
 port(
@@ -218,6 +224,7 @@ port(
      mem_write : out std_logic;
      alu_cont  : out std_logic_vector(3 downto 0);
      alu_src   : out std_logic ; 
+     alu_a_src : out std_logic_vector(1 downto 0);
      imm_src   : out std_logic_vector(2 downto 0);
      reg_write : out std_logic;
      branch    : out std_logic; 
@@ -281,6 +288,8 @@ port(
      jump_d      : in std_logic;
      valid_d     : in  std_logic;
      funct3_d    : in  std_logic_vector(2 downto 0);
+     alu_a_src_d : in  std_logic_vector(1 downto 0);
+     alu_a_src_e : out std_logic_vector(1 downto 0);
      funct3_e    : out std_logic_vector(2 downto 0);
      valid_e     : out std_logic;
      res_src_e   : out std_logic_vector(1 downto 0);
@@ -290,6 +299,9 @@ port(
      reg_write_e : out std_logic;
      branch_e    : out std_logic; 
      jump_e      : out std_logic;
+--jalr
+     jalr_d      : in  std_logic;
+     jalr_e      : out std_logic;
 --DATA
      rd1_d       : in std_logic_vector(31 downto 0);
      rd2_d       : in std_logic_vector(31 downto 0);
@@ -427,6 +439,9 @@ begin
     if mispredict_e = '1' then
       pc_next <= correct_pc_e;
 
+    elsif valid_e = '1' and jump_e = '1' and jalr_e = '1' then
+      pc_next <= jalr_target_e;
+
     elsif valid_e = '1' and jump_e = '1' then
       pc_next <= pc_target_e;
 
@@ -532,6 +547,8 @@ predictor_update_e <= valid_e and branch_e;
    ra1_d    <= instr_d(19 downto 15);
    ra2_d    <= instr_d(24 downto 20);
    rd_d     <= instr_d(11 downto 7);
+   jalr_d   <= '1' when op = "1100111" else '0';
+   jalr_target_e <= alu_res_e(31 downto 1) & '0';
 
   pc_reg : program_counter
   port map(
@@ -565,7 +582,7 @@ predictor_update_e <= valid_e and branch_e;
 
   alu_unit : alu
   port map (
-            srca      => srca_e,
+            srca      => alu_input_a_e,
             srcb      => srcb_e,
             alu_cont  => alu_cont_e,
             zero      => zero_e,
@@ -635,6 +652,7 @@ predictor_update_e <= valid_e and branch_e;
            reg_write => reg_write_d,
            res_src   => res_src_d, 
            alu_src   => alu_src_d,
+           alu_a_src => alu_a_src_d,
            branch    => branch_d,
            mem_write => mem_write_d,
            alu_cont  => alu_cont_d);
@@ -690,21 +708,25 @@ predictor_update_e <= valid_e and branch_e;
           mem_write_d => mem_write_d,
           alu_cont_d  => alu_cont_d,
           alu_src_d   => alu_src_d,
+          alu_a_src_d => alu_a_src_d,
           reg_write_d => reg_write_d,
           branch_d    => branch_d,
           jump_d      => jump_d,
           valid_d     => valid_d,
           funct3_e    => funct3_e, 
           funct3_d    => funct3_d,
+          jalr_d      => jalr_d,
 -- CONTROL outputs
           res_src_e   => res_src_e,
           mem_write_e => mem_write_e,
           alu_cont_e  => alu_cont_e,
           alu_src_e   => alu_src_e,
+          alu_a_src_e => alu_a_src_e, 
           reg_write_e => reg_write_e,
           branch_e    => branch_e,
           jump_e      => jump_e,
           valid_e     => valid_e,
+          jalr_e      => jalr_e,
 -- DATA inputs
           rd1_d       => rd1_d,
           rd2_d       => rd2_d,
@@ -793,6 +815,16 @@ predictor_update_e <= valid_e and branch_e;
            write_data => write_data_m,
            dmem_we    => dmem_we,
            gpio_out   => gpio_out
+);
+
+  mux_alu_a_src: mux3
+  generic map(width => 32)
+  port map(
+           d0  => srca_e,
+           d1  => pc_e,
+           d2  => x"00000000",
+           sel => alu_a_src_e,
+           y   => alu_input_a_e
 );
 
 end behaviour;

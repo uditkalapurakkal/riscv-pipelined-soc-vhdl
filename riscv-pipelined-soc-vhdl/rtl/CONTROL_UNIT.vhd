@@ -9,11 +9,12 @@ port(
      funct7_5  : in std_logic ;
      res_src   : out std_logic_vector(1 downto 0);
      mem_write : out std_logic;
-     alu_cont  : out std_logic_vector(2 downto 0);
+     alu_cont  : out std_logic_vector(3 downto 0);
      alu_src   : out std_logic ; 
      imm_src   : out std_logic_vector(2 downto 0);
      reg_write : out std_logic;
      branch    : out std_logic; 
+     alu_a_src : out std_logic_vector(1 downto 0);
      jump      : out std_logic );
 
 
@@ -33,8 +34,9 @@ port(
      reg_write : out std_logic;
      res_src   : out std_logic_vector(1 downto 0);
      alu_src   : out std_logic ; 
+     alu_a_src : out std_logic_vector(1 downto 0);
      branch    : out std_logic; 
-     jump    : out std_logic;
+     jump      : out std_logic;
      mem_write : out std_logic;
      alu_op    : out std_logic_vector(1 downto 0));
      
@@ -46,7 +48,7 @@ port(
      funct7_5  : in std_logic ;
      op5       : in std_logic ;
      alu_op    : in std_logic_vector(1 downto 0);
-     alu_cont  : out std_logic_vector(2 downto 0));
+     alu_cont  : out std_logic_vector(3 downto 0));
      
 end component;
 
@@ -63,6 +65,7 @@ jump      <= jump_s;
              reg_write => reg_write, 
              res_src   => res_src,
              alu_src   => alu_src,
+             alu_a_src => alu_a_src,
              branch    => branch_s, --u
              jump      => jump_s,   --u after _s
              mem_write => mem_write,
