@@ -1,6 +1,10 @@
 # 32-bit Pipelined RISC-V Processor
 
-This project implements a 32-bit pipelined RISC-V processor / minimal SoC-style design in VHDL. The current design includes a 5-stage pipeline, hazard handling, forwarding, valid-bit based pipeline control, reset synchronization, and a dynamic branch prediction unit using a 2-bit Branch History Table (BHT), Branch Target Buffer (BTB), BTB valid bits, BTB tags, and misprediction recovery. The design also includes a simple memory-mapped BUS/address decoder and an 8-bit GPIO output peripheral. The RTL was converted to Verilog using GHDL, checked with Yosys, and successfully taken through the OpenLane/SKY130 RTL-to-GDSII flow.
+This project implements a 32-bit 5-stage pipelined RISC-V processor / minimal SoC-style design in VHDL. The design includes hazard handling, forwarding, valid-bit based pipeline control, reset synchronization, memory-mapped I/O through a simple BUS/address decoder, an 8-bit GPIO output peripheral, and a dynamic branch prediction unit using a 2-bit Branch History Table (BHT), Branch Target Buffer (BTB), BTB valid bits, BTB tags, and misprediction recovery.
+
+The processor has been extended toward practical RV32I user-level instruction support. The verified instruction groups now include the ALU register/immediate group, branch group, `LUI`, `AUIPC`, `JAL`, `JALR`, byte/halfword/word load-store operations, and `FENCE` treated as a NOP for this simple in-order single-core design. Misaligned memory accesses are detected, and misaligned stores are blocked to prevent memory corruption. Full privileged CSR/trap redirection support is not implemented and is listed as future work.
+
+The RTL was converted to Verilog using GHDL, checked with Yosys, and successfully taken through the OpenLane/SKY130 RTL-to-GDSII flow.
 
 ---
 
@@ -12,7 +16,7 @@ Recommended repository structure:
 rtl/       - Synthesizable VHDL RTL files
 tb/        - Testbench files
 docs/      - Architecture notes, memory map, screenshots
-programs/  - Hardcoded instruction memory test programs
+programs/  - Hex test programs and generated instruction-memory test programs
 waves/     - Waveform PDFs/screenshots
 reports/   - Simulation and OpenLane reports
 openlane/  - OpenLane design configuration and generated implementation files
@@ -22,11 +26,38 @@ Important generated/checkpoint files:
 
 ```text
 rtl/top_synth.v                         - Verilog generated from VHDL using GHDL
+rtl/soc_top_synth.v                     - Synthesizable SoC wrapper Verilog for OpenLane
 rtl/yosys_check.log                     - Yosys check log
 reports/openlane/metrics.csv            - OpenLane metrics
 reports/openlane/manufacturability.rpt  - OpenLane manufacturability report
-reports/openlane/31-rcx_sta.checks.rpt  - STA checks / fanout warnings
+reports/openlane/31-rcx_sta.checks.rpt  - STA checks / signoff report
+programs/*.hex                          - Hex programs used for ModelSim regression testing
 ```
+
+---
+
+## Top-Level Project Status
+
+Current verified features:
+
+- 32-bit 5-stage pipelined RISC-V processor in VHDL
+- IF, ID, EX, MEM, and WB pipeline stages
+- Pipeline registers: `IF/ID`, `ID/EX`, `EX/MEM`, `MEM/WB`
+- Hazard detection and load-use stall handling
+- ALU operand forwarding
+- Valid-bit gated pipeline control
+- Reset synchronizer
+- Dynamic branch predictor with BHT, BTB, valid bits, and tags
+- Branch predictor ON/OFF comparison support
+- Memory-mapped BUS/address decoder
+- 8-bit output-only GPIO peripheral at address `0x00000040`
+- Simulation-only instruction memory that can load `.hex` programs
+- Hardcoded/synthesis instruction memory expanded to 1024 instruction words
+- RV32I ALU, branch, jump, upper-immediate, load/store-width, and fence testing
+- Misaligned memory access detection with misaligned store blocking
+- GHDL VHDL-to-Verilog conversion
+- Yosys design checking
+- OpenLane/SKY130 RTL-to-GDSII implementation
 
 ---
 
@@ -40,40 +71,417 @@ The processor follows a standard 5-stage pipeline:
 4. **MEM** - Data Memory Access
 5. **WB** - Write Back
 
-Pipeline registers used:
-
-- `IF/ID`
-- `ID/EX`
-- `EX/MEM`
-- `MEM/WB`
-
 Valid bits are passed through the pipeline to prevent bubbles, flushed instructions, or invalid instructions from updating architectural state.
+
+Final write enables are gated using valid bits:
+
+```vhdl
+reg_write_real <= valid_w and reg_write_w;
+mem_write_real <= valid_m and mem_write_m;
+```
+
+The branch predictor update is also gated:
+
+```vhdl
+predictor_update_e <= valid_e and branch_e;
+```
+
+This prevents invalid or flushed instructions from modifying architectural state or predictor state.
 
 ---
 
-## Currently Tested Instruction Support
+## RV32I Instruction Support
 
-The current test program verifies:
+The current design supports the main RV32I user-level computational, control-flow, and memory instructions needed for simple bare-metal programs.
 
-- `ADDI`
-- `ADD`
-- `SUB`
-- `LW`
-- `SW`
-- `BEQ`
-- `JAL`
-- ALU forwarding
-- Load-use stall handling
-- Branch flush handling
-- Jump flush handling
-- 2-bit branch predictor learning
-- BTB target prediction
-- BTB tag-based alias prevention
-- BUS/address decoder
-- Memory-mapped 8-bit GPIO output
-- GHDL VHDL-to-Verilog conversion
-- Yosys synthesis/check flow
-- OpenLane/SKY130 RTL-to-GDSII implementation
+### ALU Register Instructions
+
+| Instruction | Status |
+|---|---|
+| `ADD` | Supported and tested |
+| `SUB` | Supported and tested |
+| `SLL` | Supported and tested |
+| `SLT` | Supported and tested |
+| `SLTU` | Supported and tested |
+| `XOR` | Supported and tested |
+| `SRL` | Supported and tested |
+| `SRA` | Supported and tested |
+| `OR` | Supported and tested |
+| `AND` | Supported and tested |
+
+### ALU Immediate Instructions
+
+| Instruction | Status |
+|---|---|
+| `ADDI` | Supported and tested |
+| `SLTI` | Supported and tested |
+| `SLTIU` | Supported and tested |
+| `XORI` | Supported and tested |
+| `ORI` | Supported and tested |
+| `ANDI` | Supported and tested |
+| `SLLI` | Supported and tested |
+| `SRLI` | Supported and tested |
+| `SRAI` | Supported and tested |
+
+### Upper Immediate Instructions
+
+| Instruction | Status |
+|---|---|
+| `LUI` | Supported and tested |
+| `AUIPC` | Supported and tested |
+
+### Control-Flow Instructions
+
+| Instruction | Status |
+|---|---|
+| `BEQ` | Supported and tested |
+| `BNE` | Supported and tested |
+| `BLT` | Supported and tested |
+| `BGE` | Supported and tested |
+| `BLTU` | Supported and tested |
+| `BGEU` | Supported and tested |
+| `JAL` | Supported and tested |
+| `JALR` | Supported and tested |
+
+### Load Instructions
+
+| Instruction | Status |
+|---|---|
+| `LB` | Supported and tested |
+| `LH` | Supported and tested |
+| `LW` | Supported and tested |
+| `LBU` | Supported and tested |
+| `LHU` | Supported and tested |
+
+### Store Instructions
+
+| Instruction | Status |
+|---|---|
+| `SB` | Supported and tested |
+| `SH` | Supported and tested |
+| `SW` | Supported and tested |
+
+### System/Fence Instructions
+
+| Instruction | Status |
+|---|---|
+| `FENCE` | Treated as NOP for this simple single-core in-order implementation |
+| `ECALL` | Full trap/CSR behavior not implemented |
+| `EBREAK` | Full trap/CSR behavior not implemented |
+
+Current README wording should be interpreted as **RV32I user-level computational/control/memory support**, with full privileged CSR/trap support planned as future work.
+
+---
+
+## ALU Implementation Update
+
+The ALU control field was expanded to 4 bits to support the full RV32I ALU group.
+
+Internal ALU control encoding:
+
+| `alu_cont` | Operation |
+|---|---|
+| `0000` | AND |
+| `0001` | OR |
+| `0010` | ADD |
+| `0011` | XOR |
+| `0100` | SLL |
+| `0101` | SRL |
+| `0110` | SUB |
+| `0111` | SLT |
+| `1000` | SLTU |
+| `1001` | SRA |
+
+Shift operations use only the lower 5 bits of the shift amount:
+
+```vhdl
+srcb(4 downto 0)
+```
+
+The ALU decoder handles both R-type and I-type ALU operations using `funct3`, `funct7_5`, and opcode bit `op(5)` where needed. R-type and I-type ALU operations share `alu_op = "10"`; the difference between register and immediate operands is selected through the datapath `alu_src` control signal.
+
+---
+
+## Branch Instruction Update
+
+The original branch path was BEQ-focused. The branch unit was extended to support all RV32I branch types:
+
+```text
+BEQ, BNE, BLT, BGE, BLTU, BGEU
+```
+
+Because branch resolution happens in EX, `funct3` is now carried through the pipeline:
+
+```text
+funct3_d -> funct3_e
+```
+
+Branch decision is generated in EX using forwarded operands:
+
+```vhdl
+process(funct3_e, srca_e, write_data_e)
+begin
+  case funct3_e is
+    when "000" => -- BEQ
+    when "001" => -- BNE
+    when "100" => -- BLT
+    when "101" => -- BGE
+    when "110" => -- BLTU
+    when "111" => -- BGEU
+    when others =>
+  end case;
+end process;
+```
+
+The branch predictor and PC redirect logic now use `branch_taken_e` instead of BEQ-only `zero_e` behavior.
+
+---
+
+## LUI, AUIPC, and JALR Update
+
+To support `LUI`, `AUIPC`, and `JALR`, an ALU-A source mux was added.
+
+Control signal:
+
+```vhdl
+alu_a_src : std_logic_vector(1 downto 0)
+```
+
+Encoding:
+
+| `alu_a_src` | ALU A Input |
+|---|---|
+| `00` | Forwarded `rs1` value |
+| `01` | `PC` |
+| `10` | Zero |
+
+This allows:
+
+```text
+LUI   = 0  + imm_u
+AUIPC = PC + imm_u
+JALR  = rs1 + imm_i
+```
+
+For `JALR`, the target address is generated as:
+
+```vhdl
+jalr_target_e <= alu_res_e(31 downto 1) & '0';
+```
+
+This clears bit 0 as required by the RISC-V JALR behavior.
+
+---
+
+## Load/Store Width Support
+
+The memory system was extended beyond word-only `LW/SW` support.
+
+Implemented load instructions:
+
+```text
+LB, LH, LW, LBU, LHU
+```
+
+Implemented store instructions:
+
+```text
+SB, SH, SW
+```
+
+### Store Width Handling
+
+Stores are handled in the MEM stage inside the data memory write path using `funct3_m`:
+
+| `funct3_m` | Store Type | Behavior |
+|---|---|---|
+| `000` | `SB` | Updates selected byte only |
+| `001` | `SH` | Updates selected halfword only |
+| `010` | `SW` | Updates full 32-bit word |
+
+The memory is internally word-organized, so the byte offset comes from:
+
+```vhdl
+alu_res_m(1 downto 0)
+```
+
+For a byte store, only one byte lane is modified. For a halfword store, only the lower or upper 16-bit halfword is modified. For a word store, the full word is replaced.
+
+### Load Extension Handling
+
+Data memory returns a full 32-bit word. Load selection and sign/zero extension are performed before writeback using:
+
+```text
+read_data_w
+alu_res_w(1 downto 0)
+funct3_w
+```
+
+Load mapping:
+
+| `funct3_w` | Load Type | Behavior |
+|---|---|---|
+| `000` | `LB` | Select byte and sign-extend |
+| `001` | `LH` | Select halfword and sign-extend |
+| `010` | `LW` | Use full word |
+| `100` | `LBU` | Select byte and zero-extend |
+| `101` | `LHU` | Select halfword and zero-extend |
+
+The writeback result mux uses the extended load value instead of raw memory data.
+
+---
+
+## Misaligned Memory Access Detection
+
+A lightweight misaligned access detection path was added.
+
+Alignment rules:
+
+| Access Width | Required Alignment |
+|---|---|
+| Byte | Always aligned |
+| Halfword | Address bit `0` must be `0` |
+| Word | Address bits `1 downto 0` must be `00` |
+
+The design detects misaligned memory operations using the calculated address in EX:
+
+```text
+mem_access_e     = load or store in EX
+mem_misaligned_e = misalignment detected in EX
+mem_misaligned_m = pipelined misalignment flag in MEM
+```
+
+For misaligned stores, the final memory write enable is blocked:
+
+```vhdl
+mem_write_safe_m <= valid_m and mem_write_m and not mem_misaligned_m;
+```
+
+Because the design uses a BUS/address decoder, `mem_write_safe_m` is connected to the BUS write-enable input. The BUS then generates the final `dmem_we` for data memory or GPIO write-enable for GPIO.
+
+This prevents invalid misaligned stores from corrupting memory or GPIO. Full trap redirection using CSRs such as `mepc`, `mcause`, and `mtvec` is not implemented yet.
+
+---
+
+## Simulation-Only Hex Instruction Memory
+
+A simulation-only instruction memory was added to load programs from external `.hex` files.
+
+This allows ModelSim testing without editing hardcoded VHDL instruction memory every time.
+
+Typical flow:
+
+```text
+program.hex
+  -> INSTRUCTION_MEMORY_HEX.vhd
+  -> ModelSim simulation
+  -> GPIO_OUT = AA for PASS
+```
+
+The hex file uses one 32-bit instruction per line:
+
+```text
+04000F93
+0AA00F13
+01EFA023
+```
+
+For synthesis/OpenLane, the hardcoded instruction memory is still used, because file I/O based ROM initialization is simulation-only.
+
+Instruction memory was expanded to 1024 instruction words:
+
+```text
+1024 instructions = 4096 bytes = 4 KB
+```
+
+The correct word index uses:
+
+```vhdl
+address(11 downto 2)
+```
+
+---
+
+## Verification Programs
+
+The project now uses separate hex programs for regression testing. Recommended files under `programs/`:
+
+```text
+programs/alu_test.hex
+programs/branch_test.hex
+programs/lui_auipc_jalr_test.hex
+programs/load_store_fence_test.hex
+```
+
+All tests use the same PASS/FAIL convention:
+
+| GPIO Output | Meaning |
+|---|---|
+| `0xAA` / decimal `170` | Test passed |
+| `0xEE` / decimal `238` | Test failed |
+
+Verified test categories:
+
+- Full RV32I ALU register/immediate group
+- All RV32I branch types
+- `LUI`, `AUIPC`, and `JALR`
+- `LB`, `LH`, `LW`, `LBU`, `LHU`
+- `SB`, `SH`, `SW`
+- `FENCE` as NOP
+- Misaligned halfword store detection/blocking
+- Memory-mapped GPIO writes through BUS
+
+A fixed-time simulation may show high jump/flush counts because the PASS routine intentionally loops forever after writing `0xAA`. For performance measurement, the testbench should stop when `gpio_out` first becomes `0xAA` or `0xEE`.
+
+---
+
+## Bare-Metal C Readiness
+
+The processor now supports the main instruction groups needed for simple bare-metal RV32I C programs compiled with a RISC-V GCC toolchain.
+
+Recommended compile style:
+
+```bash
+riscv32-unknown-elf-gcc \
+  -march=rv32i -mabi=ilp32 \
+  -nostdlib -nostartfiles \
+  -T linker.ld \
+  startup.S main.c \
+  -o program.elf
+```
+
+Expected flow:
+
+```text
+main.c
+  -> RISC-V GCC
+  -> program.elf
+  -> objdump/disassembly check
+  -> program.hex
+  -> INSTRUCTION_MEMORY_HEX.vhd
+  -> ModelSim
+  -> GPIO_OUT = AA
+```
+
+Supported target style:
+
+- Simple bare-metal C
+- No operating system
+- No standard library/syscalls
+- No `printf`, file I/O, or dynamic memory allocation unless custom runtime support is added
+
+Example C target behavior:
+
+```c
+#define GPIO_OUT (*(volatile unsigned int *)0x40)
+
+int main(void) {
+    GPIO_OUT = 0xAA;
+    while (1) {}
+}
+```
+
+A dedicated startup file is required because there is no OS to call `main()` automatically.
 
 ---
 
@@ -94,8 +502,6 @@ The first version implemented the basic datapath:
 
 At this stage, branches and jumps were resolved in the EX stage. When a branch or jump was taken, younger instructions were flushed.
 
----
-
 ### 2. Hazard Unit and Forwarding
 
 A hazard unit was added to handle pipeline hazards.
@@ -111,52 +517,15 @@ The hazard unit generates:
 
 Forwarding paths were added from later pipeline stages back to the EX stage ALU inputs.
 
-This allows dependent ALU instructions to execute without unnecessary stalls.
-
----
-
 ### 3. Load-Use Stall Handling
 
-Load-use hazard detection was added.
-
-When an instruction depends on a value being loaded from memory, the processor stalls fetch/decode and inserts a bubble into execute.
-
-This prevents the dependent instruction from using invalid data before the load result is available.
-
----
+Load-use hazard detection was added. When an instruction depends on a value being loaded from memory, the processor stalls fetch/decode and inserts a bubble into execute.
 
 ### 4. Valid Bit Support
 
-Valid bits were added to the pipeline:
-
-- `valid_f`
-- `valid_d`
-- `valid_e`
-- `valid_m`
-- `valid_w`
-
-The purpose of valid bits is to distinguish real instructions from bubbles and flushed instructions.
-
-Final write enables are gated using valid bits:
-
-```vhdl
-reg_write_real <= valid_w and reg_write_w;
-mem_write_real <= valid_m and mem_write_m;
-```
-
-The branch predictor update is also gated:
-
-```vhdl
-predictor_update_e <= valid_e and branch_e;
-```
-
-This prevents invalid or flushed instructions from modifying architectural or predictor state.
-
----
+Valid bits were added to distinguish real instructions from bubbles and flushed instructions.
 
 ### 5. Reset Synchronizer
-
-A reset synchronizer was added at top level.
 
 The external reset can assert immediately, but reset deassertion is synchronized to the clock.
 
@@ -175,19 +544,15 @@ end process;
 rst_local <= rst_sync2;
 ```
 
-Internal pipeline registers use `rst_local`.
-
 ---
 
 ## Branch Predictor Implementation
 
 The branch predictor was implemented incrementally.
 
----
-
 ### Step 1: Direction-Only 2-bit BHT
 
-The first branch predictor version used only a 2-bit Branch History Table.
+The first branch predictor version used a 2-bit Branch History Table.
 
 ```vhdl
 type bht_type is array(0 to 15) of std_logic_vector(1 downto 0);
@@ -198,14 +563,6 @@ A 16-entry BHT was used. The index is taken from the fetch PC:
 
 ```vhdl
 index_f <= to_integer(unsigned(pc_f(5 downto 2)));
-```
-
-`pc(1 downto 0)` is ignored because RV32 instructions are word-aligned, so those bits are normally `00`.
-
-For a 16-entry table, four useful PC bits are needed:
-
-```vhdl
-pc(5 downto 2)
 ```
 
 Each BHT entry stores a 2-bit saturating counter:
@@ -222,10 +579,6 @@ The MSB is used as the prediction:
 ```vhdl
 predict_taken_f <= bht(index_f)(1);
 ```
-
-The full 2-bit value is needed because it provides confidence. One unusual branch result does not immediately flip the prediction direction.
-
----
 
 ### Step 2: BHT Update in Execute Stage
 
@@ -244,15 +597,9 @@ index_e <= to_integer(unsigned(pc_e(5 downto 2)));
 The actual branch result is generated in EX:
 
 ```vhdl
-actual_taken_e <= branch_e and zero_e;
+actual_taken_e <= valid_e and branch_e and branch_taken_e;
 predictor_update_e <= valid_e and branch_e;
 ```
-
-If the branch is taken, the counter increments toward `11`.
-
-If the branch is not taken, the counter decrements toward `00`.
-
----
 
 ### Step 3: Adding the BTB
 
@@ -267,70 +614,32 @@ signal btb : btb_type := (others => (others => '0'));
 
 The BTB stores the target PC of previously taken branches.
 
-When a branch is taken in EX:
-
-```vhdl
-btb(index_e) <= actual_target_e;
-btb_valid(index_e) <= '1';
-```
-
-Then the predictor can output:
-
-```vhdl
-predicted_target_f <= btb(index_f);
-```
-
----
-
 ### Step 4: Adding BTB Valid Bits
 
 After reset, the BTB contains zeros. A predicted target should not be used unless the entry has been written before.
-
-Therefore valid bits were added:
 
 ```vhdl
 signal btb_valid : std_logic_vector(15 downto 0) := (others => '0');
 ```
 
-Prediction was gated with the valid bit:
-
-```vhdl
-predict_taken_f <= bht(index_f)(1) and btb_valid(index_f);
-```
-
-This prevents the processor from jumping to an invalid target after reset.
-
----
-
 ### Step 5: Pipelining Prediction Information
 
-The branch is predicted in IF but resolved in EX.
+The branch is predicted in IF but resolved in EX. Prediction information is carried with the instruction:
 
-So the prediction information must travel with the instruction through the pipeline.
+```text
+IF -> ID -> EX
+```
 
-Signals added:
+Signals:
 
 ```vhdl
 predicted_taken_d  : std_logic;
 predicted_taken_e  : std_logic;
-
 predicted_target_d : std_logic_vector(31 downto 0);
 predicted_target_e : std_logic_vector(31 downto 0);
 ```
 
-These are passed through:
-
-```text
-IF → ID → EX
-```
-
-This allows the EX stage to compare what was predicted against what actually happened.
-
----
-
 ### Step 6: Misprediction Detection
-
-A branch misprediction is detected in EX.
 
 Direction mismatch:
 
@@ -361,110 +670,30 @@ Correct recovery PC:
 correct_pc_e <= pc_target_e when actual_taken_e = '1' else pc_plus_4_e;
 ```
 
----
-
 ### Step 7: Predictor-Controlled PC Selection
 
-The old design used a simple two-input PC mux:
-
-```text
-PC + 4
-or
-branch target from EX
-```
-
-After branch prediction, the PC selection needs more choices.
-
-Final PC priority:
+Final PC selection priority:
 
 1. Misprediction recovery
-2. Unpredicted jump correction
-3. Predicted taken branch target
-4. Normal `PC + 4`
+2. JALR target redirect
+3. JAL target redirect
+4. Predicted taken branch target
+5. Normal `PC + 4`
+
+JALR uses:
 
 ```vhdl
-process(branch_prediction_enable, mispredict_e, correct_pc_e,
-        valid_e, jump_e, branch_e, zero_e,
-        pc_target_e, predict_taken_f, predicted_target_f, pc_plus_4)
-begin
-  if branch_prediction_enable = '1' then
-
-    if mispredict_e = '1' then
-      pc_next <= correct_pc_e;
-
-    elsif valid_e = '1' and jump_e = '1' then
-      pc_next <= pc_target_e;
-
-    elsif predict_taken_f = '1' then
-      pc_next <= predicted_target_f;
-
-    else
-      pc_next <= pc_plus_4;
-    end if;
-
-  else
-
-    if valid_e = '1' and (((branch_e = '1') and (zero_e = '1')) or jump_e = '1') then
-      pc_next <= pc_target_e;
-
-    else
-      pc_next <= pc_plus_4;
-    end if;
-
-  end if;
-end process;
+jalr_target_e <= alu_res_e(31 downto 1) & '0';
 ```
 
----
+### Step 8: Solving BTB Aliasing with Tags
 
-### Step 8: BTB Aliasing Problem
-
-After prediction was connected to the PC, a new issue appeared.
-
-The processor correctly predicted the repeated branch, but after the program ended and the PC continued into NOP memory, it sometimes jumped back to an old BTB target.
-
-Reason:
-
-The BTB originally used only low PC bits as the index:
-
-```vhdl
-pc(5 downto 2)
-```
-
-With only 16 entries, different PCs can map to the same BTB entry.
-
-Example:
-
-```text
-PC 16  → index 4
-PC 80  → index 4
-PC 144 → index 4
-```
-
-If PC 16 stores a BTB target of 8, then PC 80 may incorrectly read that same entry and jump to 8.
-
-This is called **aliasing**.
-
----
-
-### Step 9: Solving Aliasing with BTB Tags
-
-To fix aliasing, BTB tags were added.
-
-A tag stores the PC that originally created the BTB entry.
+BTB tags were added so that a BTB entry is used only when the stored tag matches the current fetch PC.
 
 ```vhdl
 type tag_type is array(0 to 15) of std_logic_vector(31 downto 0);
 signal btb_tag : tag_type := (others => (others => '0'));
 signal btb_hit_f : std_logic;
-```
-
-When updating the BTB:
-
-```vhdl
-btb(index_e)       <= actual_target_e;
-btb_tag(index_e)   <= pc_e;
-btb_valid(index_e) <= '1';
 ```
 
 During prediction:
@@ -477,10 +706,6 @@ predicted_target_f <= btb(index_f);
 btb_valid_f        <= btb_hit_f;
 ```
 
-Now the processor only uses a BTB entry when the stored tag matches the current fetch PC.
-
-This prevents unrelated PCs with the same index from incorrectly using an old target.
-
 ---
 
 ## Branch Predictor ON/OFF Comparison
@@ -491,35 +716,7 @@ A control signal was added:
 signal branch_prediction_enable : std_logic := '1';
 ```
 
-This allows testing the exact same program with prediction enabled or disabled.
-
----
-
-## Simulation Comparison
-
-The same instruction memory program was simulated twice:
-
-1. **Branch prediction disabled**
-2. **Branch prediction enabled**
-
-The goal was to confirm that the branch predictor reduces unnecessary flushes and increases useful retired instructions within the same fixed simulation window.
-
-### Test Configuration
-
-- Simulation window: 60 cycles
-- Same instruction memory contents
-- Same pipeline, hazard unit, forwarding paths, and valid-bit logic
-- Only `branch_prediction_enable` was changed
-
-```vhdl
-signal branch_prediction_enable : std_logic := '0'; -- predictor OFF
-```
-
-```vhdl
-signal branch_prediction_enable : std_logic := '1'; -- predictor ON
-```
-
----
+This allows testing the same program with prediction enabled or disabled.
 
 ### ModelSim Report: Predictor OFF
 
@@ -549,8 +746,6 @@ Jump count           = 1
 ========================================
 ```
 
----
-
 ### Comparison Table
 
 | Metric | Predictor OFF | Predictor ON | Improvement |
@@ -563,65 +758,13 @@ Jump count           = 1
 | Jump count | 1 | 1 | Same program behavior |
 | Approx. IPC | 0.633 | 0.733 | +15.8% |
 
----
-
-### Interpretation
-
-With branch prediction disabled, taken branches are resolved in the EX stage. This causes younger instructions to be flushed whenever the branch or jump redirects the PC.
-
-With branch prediction enabled, repeated taken branches are learned by the 2-bit BHT and redirected earlier using the BTB target. Therefore, some branch redirects no longer require a full flush.
-
-Flush count decreased:
-
-```text
-9 → 6
-```
-
-This is 3 fewer flushes, or approximately:
-
-```text
-33.3% fewer flushes
-```
-
-Instructions retired in the same 60-cycle simulation window increased:
-
-```text
-38 → 44
-```
-
-Approximate IPC:
-
-```text
-Predictor OFF = 38 / 60 = 0.633
-Predictor ON  = 44 / 60 = 0.733
-```
-
-Approximate IPC improvement:
-
-```text
-(0.733 - 0.633) / 0.633 ≈ 15.8%
-```
+Flush count decreased from 9 to 6, or approximately 33.3% fewer flushes. Approximate IPC improved by about 15.8% in the fixed simulation window.
 
 ---
 
-## Final Branch Predictor Features
-
-The implemented branch predictor includes:
-
-- 16-entry 2-bit Branch History Table
-- 2-bit saturating counters
-- Branch Target Buffer
-- BTB valid bits
-- BTB tags
-- Prediction information pipelined to EX
-- Misprediction detection
-- Correct PC recovery
-- Predictor enable/disable comparison mode
-
----
 ## BUS and Memory-Mapped GPIO
 
-After the CPU core and branch predictor were verified, a simple memory-mapped BUS/address decoder was added. This makes the design closer to a minimal SoC-style chip instead of only a standalone CPU core.
+A simple memory-mapped BUS/address decoder makes the design closer to a minimal SoC-style chip instead of only a standalone CPU core.
 
 The BUS sits between the CPU memory stage and memory-mapped targets:
 
@@ -629,7 +772,7 @@ The BUS sits between the CPU memory stage and memory-mapped targets:
 CPU MEM stage
   addr       = alu_res_m
   write_data = write_data_m
-  mem_we     = mem_write_real
+  mem_we     = mem_write_safe_m
        |
        v
 BUS / address decoder
@@ -639,9 +782,7 @@ BUS / address decoder
        |-- GPIO output register
 ```
 
-The register file, ALU, branch predictor, and pipeline registers are not connected to the BUS. They remain internal CPU datapath blocks. The BUS is used only for memory-stage accesses.
-
----
+The register file, ALU, branch predictor, and pipeline registers remain internal CPU datapath blocks. The BUS is used only for memory-stage accesses.
 
 ### Memory Map
 
@@ -668,8 +809,6 @@ pin 2 = 00000100 = 4
 pin 3 = 00001000 = 8
 ```
 
----
-
 ### Address Decoder
 
 The BUS decodes the CPU memory-stage address.
@@ -683,9 +822,7 @@ gpio_we <= mem_we and gpio_sel;
 dmem_we <= mem_we and not gpio_sel;
 ```
 
-This is important because a GPIO write should not also write into normal data memory. Without `dmem_we`, a store to `0x00000040` could update both the GPIO register and data memory. With the BUS, the store goes to only one target.
-
----
+This is important because a GPIO write should not also write into normal data memory.
 
 ### GPIO Output Register
 
@@ -695,42 +832,9 @@ The current GPIO peripheral is output-only:
 gpio_out : out std_logic_vector(7 downto 0)
 ```
 
-A store to `0x00000040` updates the lower 8 bits of the GPIO register:
-
-```vhdl
-if rising_edge(clk) then
-  if rst = '1' then
-    gpio_reg <= (others => '0');
-  elsif gpio_we = '1' then
-    gpio_reg <= write_data(7 downto 0);
-  end if;
-end if;
-
-gpio_out <= gpio_reg;
-```
-
-This is synthesizable logic and infers an 8-bit register plus address decode logic.
+A store to `0x00000040` updates the lower 8 bits of the GPIO register.
 
 ---
-
-### GPIO Simulation Result
-
-A GPIO test program writes the pattern:
-
-```text
-1 -> 2 -> 4 -> 8 -> repeat
-```
-
-Expected waveform:
-
-```text
-gpio_out = 00000000 -> 00000001 -> 00000010 -> 00000100 -> 00001000 -> repeat
-```
-
-The simulation confirmed that stores to address `0x00000040` correctly update `gpio_out`, while `dmem_we` remains low during GPIO writes. This verifies that the BUS correctly routes writes either to data memory or GPIO.
-
----
-
 
 ## VHDL to Verilog / Yosys Check
 
@@ -742,7 +846,13 @@ Command used:
 ghdl --synth --std=08 --out=verilog top > top_synth.v
 ```
 
-The generated Verilog was then checked using Yosys:
+For the OpenLane SoC wrapper version:
+
+```bash
+ghdl --synth --std=08 --out=verilog soc_top > soc_top_synth.v
+```
+
+The generated Verilog was checked using Yosys:
 
 ```bash
 yosys -p "read_verilog top_synth.v; hierarchy -top top; proc; check" | tee yosys_check.log
@@ -753,8 +863,6 @@ Yosys reported:
 ```text
 Found and reported 0 problems.
 ```
-
-This confirmed that the generated Verilog could be read and processed before starting the OpenLane physical design flow.
 
 ---
 
@@ -782,7 +890,7 @@ OpenLane completed successfully:
 [SUCCESS]: Flow complete.
 ```
 
-### Implementation Metrics
+### First Stable Implementation Metrics
 
 | Metric | Value |
 |---|---:|
@@ -802,124 +910,125 @@ OpenLane completed successfully:
 | Max capacitance | No violations |
 | GDSII generation | Completed |
 
-Remaining warnings from the first run:
+### CTS/Fanout Optimization Notes
 
-- Max fanout violations on clock-tree leaf buffers
-- 4 unconstrained endpoints
-- IR drop warning because `VSRC_LOC_FILES` was not defined
+The first stable implementation had high fanout warnings. A later CTS clustering experiment improved fanout significantly.
 
-The max fanout warnings were mainly on clock tree leaf buffers, for example:
+Observed fanout improvement:
 
 ```text
-clkbuf_leaf_.../X   limit 10   actual 11   (VIOLATED)
+soc_top_clean fanout: 205
+CTS clustering size 8 / diameter 30: fanout 65
+CTS clustering size 6 / diameter 25: fanout 37
+CTS clustering size 4 / diameter 20: fanout 80
 ```
 
-This is documented as a first-pass optimization issue, not a functional RTL bug. Future OpenLane cleanup can tune CTS/buffering settings to reduce these violations.
+Best checkpoint so far:
 
-### GDS Layout Screenshot
-
-If the screenshot is available in the repository, it can be viewed here:
-
-```markdown
-![GDS layout](docs/images/layout_screenshot.png)
+```json
+{
+  "CTS_SINK_CLUSTERING_SIZE": 6,
+  "CTS_SINK_CLUSTERING_MAX_DIAMETER": 25
+}
 ```
+
+The updated RV32I/load-store RTL should be regenerated through GHDL/Yosys and rerun through OpenLane for the final current GDSII checkpoint.
 
 ---
 
-## Known Current Limitations
+## Current Limitations
 
 This is still a learning/project CPU and has some limitations:
 
-1. **Small BHT/BTB size**
+1. **No full privileged CSR/trap architecture**
+   - `ECALL`, `EBREAK`, `MRET`, `mepc`, `mcause`, `mtvec`, `mstatus`, and privilege modes are not implemented.
+   - Misaligned stores are detected and blocked, but full trap redirection is future work.
+
+2. **FENCE is treated as NOP**
+   - This is acceptable for the current simple single-core in-order memory system.
+
+3. **Small BHT/BTB size**
    - Only 16 entries are used.
-   - Larger programs may still cause conflict pressure.
+   - Larger programs may cause conflict pressure.
 
-2. **Simple index**
-   - The index uses `pc(5 downto 2)`.
-   - Larger predictors often use more entries or hashed/global-history indexing.
+4. **Simple branch predictor**
+   - Local 2-bit predictor with BTB tags.
+   - No global history or GShare in the current committed implementation.
 
-3. **BEQ-focused branch behavior**
-   - Current branch result is based on:
-     ```vhdl
-     actual_taken_e <= branch_e and zero_e;
-     ```
-   - More branch types require expanded branch compare logic.
+5. **JAL/JALR are redirected in EX**
+   - The branch predictor focuses on conditional branches.
+   - Future versions could add jump target prediction.
 
-4. **JAL is not predicted**
-   - Jumps are still corrected in EX:
-     ```vhdl
-     valid_e and jump_e
-     ```
-   - A future version could also predict jumps using the BTB.
+6. **Small on-chip instruction/data memory**
+   - Suitable for test programs and simple bare-metal C.
+   - Not suitable for an operating system.
 
-5. **No global history yet**
-   - This is a local 2-bit predictor.
-   - GShare/global history prediction can be added later.
-
-6. **Small instruction/data memory**
-   - Current programs are manually loaded into instruction memory.
-   - Running compiled programs would require a proper machine-code loading flow.
-
-7. **GPIO is currently output-only**
+7. **GPIO is output-only**
    - Current GPIO supports only an 8-bit output register at `0x00000040`.
    - `gpio_in` and `gpio_dir` are not implemented yet.
 
-8. **First OpenLane run has remaining signoff warnings**
-   - The flow completed and generated GDSII.
-   - No setup or hold violations were reported.
-   - Max fanout warnings and unconstrained endpoint warnings remain for future cleanup.
+8. **No cache or external memory bus**
+   - No instruction cache, data cache, AXI, or Wishbone interface yet.
 
 ---
 
-## Future Improvements
+## Recommended Next Steps
 
-Possible next improvements:
+Short-term next steps:
 
-- Expand toward full RV32I instruction support
-- Add BNE, BLT, BGE, BLTU, BGEU
-- Add AUIPC and LUI
-- Improve instruction memory loading from hex/mem files
-- Add `gpio_in` and `gpio_dir` registers for fuller GPIO support
-- Add simple timer peripheral
-- Add UART-TX peripheral
-- Add stack pointer setup
-- Add GShare branch prediction
-- Increase BHT/BTB size
-- Add better performance counters
-- Add waveform screenshots and ModelSim reports
-- Fix OpenLane max fanout warnings
-- Investigate unconstrained endpoints
-- Improve OpenLane floorplan/CTS settings
-- Add simulation-only hex program loading
-- Continue ASIC-oriented cleanup and synthesis checks
+1. Commit the current RV32I/load-store/FENCE RTL checkpoint.
+2. Keep separate regression hex files in `programs/`.
+3. Rename testbench messages from `ALU TEST PASSED` to `CPU TEST PASSED`.
+4. Run final ModelSim regression:
+   - ALU test
+   - Branch test
+   - LUI/AUIPC/JALR test
+   - Load/store/FENCE test
+5. Add a bare-metal C compilation flow:
+   - `main.c`
+   - `startup.S`
+   - `linker.ld`
+   - Makefile
+   - ELF to hex conversion
+6. Rerun GHDL/Yosys synthesis checks.
+7. Generate updated OpenLane/SKY130 GDSII.
+8. Add final waveform screenshots and OpenLane metrics to the repository.
+
+Possible future architectural improvements:
+
+- Bare-metal C program demo through RISC-V GCC
+- GPIO input and direction registers
+- Simple timer peripheral
+- UART-TX peripheral
+- AXI-Lite or Wishbone-style bus interface
+- Interrupt and minimal CSR support
+- Full trap/exception redirection
+- GShare branch predictor
+- Larger BHT/BTB
+- Better performance counters
+- Instruction/data cache exploration
 
 ---
 
 ## Summary
 
-This project currently demonstrates a working 5-stage pipelined RISC-V processor / minimal SoC-style design with hazard handling, forwarding, valid-bit control, branch prediction, memory-mapped GPIO, and a first successful RTL-to-GDSII implementation.
+This project demonstrates a working 32-bit 5-stage pipelined RISC-V processor / minimal SoC-style design in VHDL with hazard handling, forwarding, valid-bit control, branch prediction, memory-mapped GPIO, simulation-based verification, and OpenLane/SKY130 RTL-to-GDSII implementation.
 
-The branch predictor was built incrementally:
+The current architecture now includes practical RV32I user-level instruction support across ALU, branch, jump, upper-immediate, and memory-width operations:
 
-1. 2-bit BHT for direction prediction
-2. BTB for predicted target address
-3. BTB valid bits to avoid invalid target use
-4. Prediction pipeline registers to carry prediction into EX
-5. Misprediction detection and recovery
-6. BTB tags to prevent aliasing
-7. ON/OFF comparison mode for performance measurement
+```text
+ALU register/immediate instructions: supported and tested
+Branches: BEQ, BNE, BLT, BGE, BLTU, BGEU supported and tested
+Jumps: JAL and JALR supported and tested
+Upper immediate: LUI and AUIPC supported and tested
+Loads: LB, LH, LW, LBU, LHU supported and tested
+Stores: SB, SH, SW supported and tested
+FENCE: treated as NOP
+Misaligned stores: detected and blocked
+```
 
-The SoC-style memory-mapped I/O system adds:
+The SoC-style memory-mapped I/O system adds a BUS/address decoder and an 8-bit GPIO output register at `0x00000040`.
 
-1. A simple BUS/address decoder
-2. Separate `dmem_we` and GPIO write-enable behavior
-3. An 8-bit GPIO output register at address `0x00000040`
+The ASIC flow demonstrates GHDL VHDL-to-Verilog generation, Yosys checking, OpenLane/SKY130 synthesis, floorplanning, placement, CTS, routing, timing analysis, and GDSII generation.
 
-The ASIC implementation flow adds:
-
-1. GHDL VHDL-to-Verilog generation
-2. Yosys design checking with 0 reported problems
-3. OpenLane/SKY130 synthesis, floorplanning, placement, CTS, routing, and GDSII generation
-4. A completed first GDSII run with no setup or hold timing violations
-
-The simulation comparison shows that the predictor reduces flushes and improves useful instruction retirement in the same cycle window.
+The next most valuable project milestone is to demonstrate execution of a simple bare-metal C program compiled with a RISC-V GCC toolchain and then rerun the final updated RTL through OpenLane for a current RV32I-capable GDSII checkpoint.
