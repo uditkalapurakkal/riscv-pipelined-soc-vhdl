@@ -118,6 +118,8 @@ signal sign_imm_e ,pc_e, pc_plus_4_e          : std_logic_vector(31 downto 0);
 signal res_src_m   : std_logic_vector(1 downto 0);
 signal mem_write_m : std_logic;
 signal reg_write_m : std_logic;
+signal funct3_m    : std_logic_vector(2 downto 0);
+signal funct3_w    : std_logic_vector(2 downto 0);
 --ex_mem data
 signal rd_m                              : std_logic_vector(4 downto 0);
 signal pc_plus_4_m, alu_res_e, alu_res_m : std_logic_vector(31 downto 0);
@@ -128,6 +130,7 @@ signal reg_write_w            : std_logic;
 --mem_wb data
 signal read_data_w,read_data_m: std_logic_vector(31 downto 0); 
 signal rd_w                   : std_logic_vector(4 downto 0);
+signal load_ext_w             : std_logic_vector(31 downto 0);
 signal pc_plus_4_w, alu_res_w : std_logic_vector(31 downto 0);
 --hazard
 signal stall_f, stall_d       : std_logic;
@@ -140,6 +143,11 @@ signal alu_input_a_e            : std_logic_vector(31 downto 0);
 signal jalr_target_e            : std_logic_vector(31 downto 0);
 signal jalr_d                   : std_logic;
 signal jalr_e                   : std_logic;
+--misaligned detection
+signal mem_access_e      : std_logic;
+signal mem_misaligned_e  : std_logic;
+signal mem_misaligned_m  : std_logic;
+signal mem_write_safe_m  : std_logic;
 
 component program_counter is
 port(
@@ -188,11 +196,12 @@ end component;
 
 component data_memory is
 port(
-     clk : in std_logic;
-     we  : in std_logic;
-     a   : in std_logic_vector(31 downto 0);
-     wd  : in std_logic_vector(31 downto 0);
-     rd  : out std_logic_vector(31 downto 0));
+     clk    : in std_logic;
+     we     : in std_logic;
+     a      : in std_logic_vector(31 downto 0);
+     wd     : in std_logic_vector(31 downto 0);
+     funct3 : in std_logic_vector(2 downto 0);
+     rd     : out std_logic_vector(31 downto 0));
 
 end component;
 
@@ -336,10 +345,15 @@ port(
      mem_write_e : in std_logic;
      reg_write_e : in std_logic;
      valid_e     : in  std_logic;
+     funct3_e    : in std_logic_vector(2 downto 0);
      valid_m     : out std_logic;
+     funct3_m    : out std_logic_vector(2 downto 0);
      res_src_m   : out std_logic_vector(1 downto 0);
      mem_write_m : out std_logic; 
      reg_write_m : out std_logic;
+--misalignment
+     mem_misaligned_e : in  std_logic;
+     mem_misaligned_m : out std_logic;
 --DATA
      rd_e        : in std_logic_vector(4 downto 0);
      pc_plus_4_e : in std_logic_vector(31 downto 0);
@@ -358,6 +372,8 @@ port(
      res_src_m   : in std_logic_vector(1 downto 0);
      reg_write_m : in std_logic;
      valid_m     : in  std_logic;
+     funct3_m    : in std_logic_vector(2 downto 0);
+     funct3_w    : out std_logic_vector(2 downto 0);
      valid_w     : out std_logic;
      res_src_w   : out std_logic_vector(1 downto 0); 
      reg_write_w : out std_logic;
@@ -476,7 +492,49 @@ begin
   end if;
 end process;
 
-    rst_local <= rst_sync2;
+rst_local <= rst_sync2;
+
+--LBU, LHU, LB, LH
+process(read_data_w, alu_res_w, funct3_w)
+  variable selected_byte : std_logic_vector(7 downto 0);
+  variable selected_half : std_logic_vector(15 downto 0);
+begin
+
+  case alu_res_w(1 downto 0) is
+    when "00" => selected_byte := read_data_w(7 downto 0);
+    when "01" => selected_byte := read_data_w(15 downto 8);
+    when "10" => selected_byte := read_data_w(23 downto 16);
+    when others => selected_byte := read_data_w(31 downto 24);
+  end case;
+
+  case alu_res_w(1) is
+    when '0' => selected_half := read_data_w(15 downto 0);
+    when others => selected_half := read_data_w(31 downto 16);
+  end case;
+
+  case funct3_w is
+
+    when "000" => -- LB
+      load_ext_w <= std_logic_vector(resize(signed(selected_byte), 32));
+
+    when "001" => -- LH
+      load_ext_w <= std_logic_vector(resize(signed(selected_half), 32));
+
+    when "010" => -- LW
+      load_ext_w <= read_data_w;
+
+    when "100" => -- LBU
+      load_ext_w <= std_logic_vector(resize(unsigned(selected_byte), 32));
+
+    when "101" => -- LHU
+      load_ext_w <= std_logic_vector(resize(unsigned(selected_half), 32));
+
+    when others =>
+      load_ext_w <= read_data_w;
+
+  end case;
+
+end process;
 
 --branch compare
 branch_compare_proc : process(funct3_e, srca_e, write_data_e)
@@ -531,7 +589,18 @@ end process;
 --BRANCH PREDICTOR
 actual_taken_e <= valid_e and branch_e and branch_taken_e;
 predictor_update_e <= valid_e and branch_e;
-   
+--detect misalignment in ex stage
+mem_access_e <= valid_e and (mem_write_e or res_src_e(0));   
+mem_misaligned_e <= '1' when
+  mem_access_e = '1' and (
+    -- LH / LHU / SH require address bit 0 = 0
+    ((funct3_e = "001" or funct3_e = "101") and alu_res_e(0) = '1') or
+
+    -- LW / SW require address bits 1:0 = 00
+    (funct3_e = "010" and alu_res_e(1 downto 0) /= "00")
+  )
+else '0';
+mem_write_safe_m <= valid_m and mem_write_m and not mem_misaligned_m;
 --debug 
   valid_w_dbg <= valid_w;
   stall_f_dbg <= stall_f;
@@ -590,11 +659,12 @@ predictor_update_e <= valid_e and branch_e;
 
   dmem : data_memory
   port map(
-           clk => clk,
-           we  => dmem_we,
-           a   => alu_res_m,
-           wd  => write_data_m,
-           rd  => read_data_m);
+           clk    => clk,
+           we     => dmem_we,
+           a      => alu_res_m,
+           wd     => write_data_m,
+           funct3 => funct3_m,
+           rd     => read_data_m);
 
 
 --  mux_pcsrc : mux
@@ -609,7 +679,7 @@ predictor_update_e <= valid_e and branch_e;
   generic map (width => 32)
   port map(
            d0  => alu_res_w,      
-           d1  => read_data_w,    
+           d1  => load_ext_w,    
            d2  => pc_plus_4_w,    
            sel => res_src_w,      
            y   => result_w); 
@@ -762,7 +832,10 @@ predictor_update_e <= valid_e and branch_e;
            pc_plus_4_e  => pc_plus_4_e,
            alu_res_e    => alu_res_e,
            write_data_e => write_data_e,
-           valid_e      => valid_e,       
+           valid_e      => valid_e, 
+           funct3_e     => funct3_e,  
+           mem_misaligned_e => mem_misaligned_e,
+           mem_misaligned_m => mem_misaligned_m,    
 -- outputs
            res_src_m    => res_src_m,
            mem_write_m  => mem_write_m,
@@ -771,6 +844,7 @@ predictor_update_e <= valid_e and branch_e;
            pc_plus_4_m  => pc_plus_4_m,
            alu_res_m    => alu_res_m,
            write_data_m => write_data_m,
+           funct3_m     => funct3_m,
            valid_m      => valid_m);
 
   memwb : mem_wb
@@ -783,6 +857,7 @@ predictor_update_e <= valid_e and branch_e;
            pc_plus_4_m => pc_plus_4_m,
            alu_res_m   => alu_res_m,
            read_data_m => read_data_m, 
+           funct3_m    => funct3_m, 
            valid_m     => valid_m,
            res_src_w   => res_src_w,
            reg_write_w => reg_write_w,
@@ -790,6 +865,7 @@ predictor_update_e <= valid_e and branch_e;
            pc_plus_4_w => pc_plus_4_w,
            alu_res_w   => alu_res_w,
            read_data_w => read_data_w, 
+           funct3_w    => funct3_w, 
            valid_w     => valid_w);
 
   bp : BRANCH_PRED
@@ -810,7 +886,7 @@ predictor_update_e <= valid_e and branch_e;
   port map(
            clk        => clk,
            rst        => rst_local,
-           mem_we     => mem_write_real,
+           mem_we     => mem_write_safe_m,
            addr       => alu_res_m,
            write_data => write_data_m,
            dmem_we    => dmem_we,

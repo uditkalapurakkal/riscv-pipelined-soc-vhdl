@@ -108,6 +108,16 @@ begin
         branch     <= '0';
         alu_op     <= "00";  -- add operation
         jump       <= '0';
+      when "0001111" =>      -- FENCE / FENCE.I treated as NOP
+        reg_write  <= '0';
+        imm_src    <= "000";
+        alu_src    <= '0';
+        alu_a_src  <= "00";
+        mem_write  <= '0';
+        res_src    <= "00";
+        branch     <= '0';
+        alu_op     <= "00";
+        jump       <= '0';
       when others =>
         reg_write  <= '0';
         imm_src    <= "000";

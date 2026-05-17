@@ -11,10 +11,15 @@ port(
      mem_write_e : in std_logic;
      reg_write_e : in std_logic;
      valid_e     : in  std_logic;
+     funct3_e    : in std_logic_vector(2 downto 0);
+     funct3_m    : out std_logic_vector(2 downto 0);
      valid_m     : out std_logic;
      res_src_m   : out std_logic_vector(1 downto 0);
      mem_write_m : out std_logic; 
      reg_write_m : out std_logic;
+--misalignment
+     mem_misaligned_e : in  std_logic;
+     mem_misaligned_m : out std_logic; 
 --DATA
      rd_e        : in std_logic_vector(4 downto 0);
      pc_plus_4_e : in std_logic_vector(31 downto 0);
@@ -43,6 +48,8 @@ if rst = '1' then
   mem_write_m  <= '0';
   reg_write_m  <= '0';
   valid_m      <= '0';
+  funct3_m     <= (others => '0');
+  mem_misaligned_m <= '0';
 --DATA
   rd_m         <= (others => '0');
   pc_plus_4_m  <= (others => '0');
@@ -56,6 +63,8 @@ else
   mem_write_m  <= mem_write_e;
   reg_write_m  <= reg_write_e;
   valid_m      <= valid_e;
+  funct3_m     <= funct3_e;
+  mem_misaligned_m <= mem_misaligned_e;
 --DATA
   rd_m         <= rd_e;
   pc_plus_4_m  <= pc_plus_4_e;

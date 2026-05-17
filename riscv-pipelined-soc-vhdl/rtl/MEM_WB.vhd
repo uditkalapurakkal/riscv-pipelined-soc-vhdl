@@ -9,6 +9,8 @@ port(
      res_src_m   : in std_logic_vector(1 downto 0);
      reg_write_m : in std_logic;
      valid_m     : in  std_logic;
+     funct3_m    : in std_logic_vector(2 downto 0);
+     funct3_w    : out std_logic_vector(2 downto 0);
      valid_w     : out std_logic;
      res_src_w   : out std_logic_vector(1 downto 0); 
      reg_write_w : out std_logic;
@@ -39,6 +41,7 @@ if rst = '1' then
 --CONTROL
   res_src_w    <= "00";
   reg_write_w  <= '0' ;
+  funct3_w     <= (others => '0');
 --DATA
   read_data_w  <= (others => '0');
   rd_w         <= (others => '0');
@@ -51,12 +54,14 @@ else
 --CONTROL
   res_src_w    <= res_src_m;
   reg_write_w  <= reg_write_m;
+  valid_w      <= valid_m;
+  funct3_w     <= funct3_m;
 --DATA
   read_data_w  <= read_data_m;
   rd_w         <= rd_m;
   pc_plus_4_w  <= pc_plus_4_m;
   alu_res_w    <= alu_res_m;
-  valid_w <= valid_m;
+  
 
 end if;    
 end if;
